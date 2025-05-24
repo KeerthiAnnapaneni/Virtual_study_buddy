@@ -1,0 +1,57 @@
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background-color: #f0f8ff;
+    color: #333;
+    text-align: center;
+    padding: 20px;
+}
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    background-color: #ffffff;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+form label {
+    display: block;
+    margin: 12px 0 5px;
+    font-weight: bold;
+}
+input, button {
+    padding: 10px;
+    width: 100%;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 16px;
+}
+button {
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+button:hover {
+    background-color: #45a049;
+}
+#countdown {
+    font-size: 2rem;
+    margin: 20px 0;
+}
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    margin: 5px 0;
+}
+.task-done {
+    text-decoration: line-through;
+    color: gray;
+}
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+#taskProgress {
+    transition: all 0.4s ease;
+}

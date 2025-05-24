@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Virtual Study Buddy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <h1>Virtual Study Buddy</h1>
+    <form id="sessionForm">
+        <label for="topic">Topic:</label>
+        <input type="text" id="topic" required>
+
+        <label for="studyHours">Study Duration (in hours):</label>
+        <input type="number" id="studyHours" min="1" required>
+
+        <label for="breakMinutes">Break Duration (minutes):</label>
+        <input type="number" id="breakMinutes" min="1" required>
+
+        <label for="tasks">Tasks (comma separated):</label>
+        <input type="text" id="tasks">
+
+        <button type="submit">Start Study Session</button>
+    </form>
+
+    <div id="timerSection" style="display:none;">
+        <h2 id="sessionType"></h2>
+        <h3 id="countdown"></h3>
+        <p id="motivationalMessage"></p>
+        <progress id="taskProgress" value="0" max="100" style="width:100%; height: 20px; margin-top: 10px;"></progress>
+        <br>
+        <button onclick="nextCycle()">Next</button>
+        <button id="pauseBtn" onclick="togglePause()">Pause</button>
+
+        <h3>Tasks</h3>
+        <ul id="taskList"></ul>
+    </div>
+
+    <div id="completedTasks" style="display:none;">
+        <h3>Summary</h3>
+        <strong>Completed Tasks:</strong>
+        <ul id="doneTasks"></ul>
+        <strong>Tasks To Be Done:</strong>
+        <ul id="pendingTasks"></ul>
+        <p id="finalTime"></p>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById('sessionForm');
+    let schedule = [], currentIndex = 0, countdownInterval;
+    let isPaused = false, currentTime = 0;
+    let allTasks = [], completedTasks = new Set();
+    let totalStartTime, totalEndTime;
+    let totalStudyMinutes = 0;
+    let totalScheduledMinutes = 0;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const topic = document.getElementById('topic').value;
+        const studyHours = document.getElementById('studyHours').value;
+        const breakMinutes = document.getElementById('breakMinutes').value;
+        const tasks = document.getElementById('tasks').value;
+
+        totalStartTime = new Date();
+
+        const response = await fetch('/start-session', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ topic, studyHours, breakMinutes, tasks })
+        });
+
+        const data = await response.json();
+        schedule = data.schedule;
+        currentIndex = 0;
+        allTasks = data.tasks || [];
+        completedTasks.clear();
+
+        totalScheduledMinutes = schedule.reduce((sum, s) => sum + s.minutes, 0);
+
+        form.style.display = 'none';
+        document.getElementById('timerSection').style.display = 'block';
+
+        renderTasks();
+        updateProgress();
+        startTimer(schedule[currentIndex]);
+    });
+
+    function renderTasks() {
+        const taskList = document.getElementById('taskList');
+        taskList.innerHTML = '';
+        allTasks.forEach((task, index) => {
+            const li = document.createElement('li');
+            const isDone = completedTasks.has(task);
+            li.innerHTML = `<label class="checkbox-container">
+                <input type="checkbox" onchange="toggleTask(this)" data-index="${index}" ${isDone ? 'checked' : ''}>
+                <span class="checkmark"></span>${task}</label>`;
+            if (isDone) {
+                li.querySelector('label').classList.add('task-done');
+            }
+            taskList.appendChild(li);
+        });
+    }
+
+    function startTimer(session) {
+        document.getElementById('sessionType').innerText = `${session.type} Time`;
+        currentTime = session.minutes * 60;
+        updateMotivation(session.type);
+        updateCountdown(currentTime);
+        playBeep();
+
+        countdownInterval = setInterval(() => {
+            if (!isPaused) {
+                currentTime--;
+                if (currentTime < 0) {
+                    clearInterval(countdownInterval);
+                    alert(`${session.type} session ended!`);
+                    nextCycle();
+                } else {
+                    updateCountdown(currentTime);
+
+                    if (session.type === "Study") {
+                        totalStudyMinutes++;
+                        const checkboxes = document.querySelectorAll('#taskList input[type="checkbox"]');
+                        const allDone = Array.from(checkboxes).every(cb => cb.checked);
+
+                        if (allDone && currentTime > 0) {
+                            clearInterval(countdownInterval);
+                            const minutesLeft = Math.floor(currentTime / 60);
+                            const secondsLeft = currentTime % 60;
+                            const remainingTotal = totalScheduledMinutes - totalStudyMinutes;
+                            const newTasksInput = prompt(`All tasks completed early! You still have ${Math.floor(remainingTotal / 60)}h ${remainingTotal % 60}m remaining.\nEnter new tasks (comma separated) or type "cancel" to end:`);
+
+                            if (newTasksInput && newTasksInput.trim().toLowerCase() === 'cancel') {
+                                endSession();
+                            } else if (newTasksInput && newTasksInput.trim() !== '') {
+                                const newTasks = newTasksInput.split(',').map(t => t.trim()).filter(t => t !== '');
+                                allTasks = allTasks.concat(newTasks);
+                                renderTasks();
+                                updateProgress();
+                                startTimer(session);
+                            } else {
+                                endSession();
+                            }
+                        }
+                    }
+                }
+            }
+        }, 1000);
+    }
+
+    function updateCountdown(time) {
+        const minutes = Math.floor(time / 60);
+        const seconds = time % 60;
+        document.getElementById('countdown').innerText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    }
+
+    function nextCycle() {
+        clearInterval(countdownInterval);
+
+        const checkboxes = document.querySelectorAll('#taskList input[type="checkbox"]');
+        checkboxes.forEach((cb, i) => {
+            if (cb.checked) completedTasks.add(allTasks[i]);
+        });
+
+        currentIndex++;
+        if (currentIndex >= schedule.length) {
+            endSession();
+        } else {
+            showTimeStatus();
+            startTimer(schedule[currentIndex]);
+            renderTasks();
+            updateProgress();
+        }
+    }
+
+    function endSession() {
+        document.getElementById('timerSection').style.display = 'none';
+        totalEndTime = new Date();
+
+        showSummary();
+        document.getElementById('finalTime').innerText = `You studied for ${Math.floor(totalStudyMinutes / 60)} hour(s) and ${totalStudyMinutes % 60} minute(s) today.`;
+    }
+
+    function showTimeStatus() {
+        const now = new Date();
+        const totalElapsed = Math.round((now - totalStartTime) / 60000);
+        const remaining = schedule.slice(currentIndex).reduce((sum, s) => sum + s.minutes, 0);
+
+        const response = confirm(`Time spent so far: ${Math.floor(totalElapsed / 60)}h ${totalElapsed % 60}m\nTime remaining: ${Math.floor(remaining / 60)}h ${remaining % 60}m\nDo you want to complete other projects/tasks?`);
+
+        if (!response) {
+            endSession();
+        }
+    }
+
+    function togglePause() {
+        isPaused = !isPaused;
+        document.getElementById('pauseBtn').innerText = isPaused ? 'Resume' : 'Pause';
+    }
+
+    function updateMotivation(type) {
+        const messages = {
+            'Study': ["Stay focused!", "You're doing great!", "Keep it up!"],
+            'Break': ["Relax your mind!", "Time for a short break!", "Rejuvenate yourself!"]
+        };
+        const msg = messages[type][Math.floor(Math.random() * messages[type].length)];
+        document.getElementById('motivationalMessage').innerText = msg;
+        if (type === 'Break') {
+            const utterance = new SpeechSynthesisUtterance(msg);
+            utterance.rate = 1;
+            speechSynthesis.speak(utterance);
+        }
+    }
+
+    function toggleTask(checkbox) {
+        const index = parseInt(checkbox.dataset.index);
+        const label = checkbox.closest('label');
+        if (checkbox.checked) {
+            label.classList.add('task-done');
+            completedTasks.add(allTasks[index]);
+        } else {
+            label.classList.remove('task-done');
+            completedTasks.delete(allTasks[index]);
+        }
+        updateProgress();
+    }
+
+    function updateProgress() {
+        const checkboxes = document.querySelectorAll('#taskList input[type="checkbox"]');
+        const completed = Array.from(checkboxes).filter(cb => cb.checked).length;
+        document.getElementById('taskProgress').value = checkboxes.length ? (completed / checkboxes.length) * 100 : 0;
+    }
+
+    function showSummary() {
+        const pending = allTasks.filter(task => !completedTasks.has(task));
+        const completed = Array.from(completedTasks).filter(task => allTasks.includes(task));
+
+        document.getElementById('completedTasks').style.display = 'block';
+        document.getElementById('doneTasks').innerHTML = completed.map(t => `<li>${t}</li>`).join('');
+        document.getElementById('pendingTasks').innerHTML = pending.map(t => `<li>${t}</li>`).join('');
+    }
+
+    function playBeep() {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = ctx.createOscillator();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, ctx.currentTime);
+        oscillator.connect(ctx.destination);
+        oscillator.start();
+        oscillator.stop(ctx.currentTime + 0.2);
+    }
+</script>
+</body>
+</html>
+
+<!-- port number: http://127.0.0.1:5000/ -->
